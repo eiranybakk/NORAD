@@ -1,14 +1,160 @@
 ---
 title: "Prosjekt"
-author: "Nikolai"
+author: "EIRA"
 date: '2022-07-04'
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r pressure, echo=FALSE}
+```{r pressure, echo=FALSE, eval=FALSE}
 plot(pressure)
+install.packages("tidymodels")
+install.packages("stopwords")
+install.packages("tidytext")
+install.packages("textrecipes")
+
+library(tidyverse)
+library(tidymodels)
+library(stopwords)
+library(tidytext)
+library(stringr)
+library(textrecipes)
+library(themis)
+library(ranger)
+library(doParallel)
+library(noradstats)
+library(here)
+library(janitor)
+library(knitr)
 ```
+
+**Dowload data**
+- Since the data we need and use for our assignment is provided by NORAD theirself, we used their webside to download the dataset. 
+- From the webside we chose the variables needed and for the prefered years. We would like to include all variables and from the years 2013 til 2021, since those were the years that NORAD used. 
+- We also made the data into a dataset. 
+- We also made the variable names more tidy, and had a quick look at the dataset. 
+
+```{r, eval=FALSE}
+Norad_Norwegian_development_assistance <- read_csv("~/Documents/Statsvitenskap /Political Data Science Hacaton/Datasett/Norad-Norwegian_development_assistance.csv")
+
+Norad_clean <- Norad_Norwegian_development_assistance %>%
+  clean_names()
+
+glimpse(Norad_clean)
+```
+
+**Creating a sub dataset**
+After having a breef look at the data and carefully choosing the variables needed, we made a smaller dataset for i to be easier to work with. 
+```{r, eval=FALSE}
+
+NORAD_subset <- Norad_clean %>%
+  select(policy_marker_biodiversity, policy_marker_climate_change_mitigation, description_of_agreement)
+
+Sub1 <- NORAD_subset %>%
+  mutate(policy_marker_biodiversity=ifelse(policy_marker_biodiversity%in%c(1,2), 1, 0))%>%
+  mutate(policy_marker_climate_change_mitigation=ifelse(policy_marker_climate_change_mitigation%in%c(1,2), 1, 0))
+
+Token2 <- Sub1 %>%
+  unnest_tokens(input = description_of_agreement,
+                output = word,
+                token = "words")
+
+
+Token2 %>%
+  filter(policy_marker_climate_change_mitigation == 1) 
+
+Token2 %>%
+  filter(policy_marker_biodiversity == 1) 
+
+Token2 %>%
+  filter(policy_marker_biodiversity == 1 & policy_marker_climate_change_mitigation == 1) 
+
+```
+
+**Split dataset into test and training data**
+```{r}
+
+```
+
+**Clean text**
+```{r}
+
+install.packages("quanteda")
+library(quanteda)
+install.packages("stm")
+library(stm)
+install.packages("reshape2")
+library(reshape2)
+
+NORAD_subset <- Norad_clean %>%
+  select(policy_marker_biodiversity, policy_marker_climate_change_mitigation, description_of_agreement, agreement_number)
+
+Token1 <- NORAD_subset %>%
+  unnest_tokens(input = description_of_agreement,
+                output = word,
+                token = "words")
+
+Token1 %>%
+  count(agreement_number, word, sort = TRUE)
+
+NORAD_DFM <- Token1 %>%
+  count(agreement_number, word, name = "count") %>%
+  #bind_tf_idf()
+  cast_dfm(agreement_number, 
+           word, 
+           count)
+
+NORAD_DFM
+
+topic1 <- stm(NORAD_DFM, 
+              init.type = "LDA", 
+              K = 50, 
+              seed = 910, 
+               max.em.its = 2, 
+              verbose = TRUE)
+
+topic_word_prob <- tidy(topic1,
+                        matrix = "beta")
+
+topics <- tidy(topic1,
+               matrix = "gamma",
+               document_names = rownames(NORAD_DFM))
+
+topic_pm <- topics %>%
+  pivot_wider(names_from = topic, values_from = gamma) %>%
+  left_join(NORAD_subset, by = c("document" = "agreement_number"))
+
+topic_pm
+```
+
+**TF-IDF**
+- This is where the real work starts. 
+```{r, eval=FALSE}
+tfidf1 <- NORAD_subset %>%
+  count(description_of_agreement, name = "ord") %>%
+  bind_tf_idf(agreement_number, description_of_agreement, ord)
+```
+
+**Random Forest model**
+This chapter is not finished
+```{r}
+
+```
+
+**Visualisations**
+1. Regional developments
+2. Was there prvided more money to aid after the refugee crisis?
+3. After 2009 (first climate election), was there given more aid money towards climate actions?
+4. Is there a correlation between nation/region and climate, does some regions have more climate money or money given to biodiversity?
+5. Company, is there a correlation between different companies and some policymarkers?
+6. Is there a correlation between the markers? 
+
+
+
+
+
