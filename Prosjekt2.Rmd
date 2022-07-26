@@ -1,0 +1,256 @@
+---
+title: "Prosjekt2"
+author: "Eira Nybakk"
+date: '2022-07-26'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+- Brainstorming
+
+For å forbedre modellen ble det nødvendig å variere innenfor modellvalget, eller å tilføre modellen mer informasjon. Ved hjelp av ikke-veiledet maskinlæring ville vi kunne tilføre modellen mer informasjon. 
+
+
+- Videreutviking av modellen 
+Automatisering av input fra Topicmodell
+Når emnene fra topicmodellenen er produsert, vil variablene mitigation, adaption og biodiversity korrelere i variert grad med emnene. Utplukkingsprosessen av emner kan forsøkes automatiseres ved å plukke ut emner med høy korrelasjonsscore på hver av disse variablene.For eksempel korrelerer emne 4 med biodiversity.  Deretter plukker man ut dokumentene som korrelerer med emne 4. Disse dokumentene får verdien 1 i en ny kolonne som opprettes. Alle andre dokumenter får verdien 0. 
+
+Dokumenter med navn og variabel ---> topicmodel: emner: ---> korr variabel og emner, ---> korr emne og dokumenter, --> mat datasettet med denne verdien. Bruk i Forest model. 
+
+
+
+
+
+
+
+
+```{r pressure, echo=FALSE, eval=FALSE}
+plot(pressure)
+install.packages("tidymodels")
+install.packages("stopwords")
+install.packages("tidytext")
+install.packages("textrecipes")
+install.packages("themis")
+install.packages("janitor")
+install.packages("noradstats") #Not available for this version of R
+install.packages("doParallel")
+
+library(tidyverse)
+library(tidymodels)
+library(stopwords)
+library(tidytext)
+library(stringr)
+library(textrecipes)
+library(themis)
+library(ranger)
+library(doParallel)
+library(noradstats)#
+library(here)
+library(janitor)
+library(knitr)
+library(iterators)
+library(parallel)
+```
+
+**Dowload data**
+- Since the data we need and use for our assignment is provided by NORAD theirself, we used their webside to download the dataset. 
+- From the webside we chose the variables needed and for the prefered years. We would like to include all variables and from the years 2013 til 2021, since those were the years that NORAD used. 
+- We also made the data into a dataset. 
+- We also made the variable names more tidy, and had a quick look at the dataset. 
+
+
+```{r, eval=FALSE}
+Norad_Norwegian_development_assistance <- read_csv("~/Documents/Statsvitenskap /Political Data Science Hacaton/Datasett/Norad-Norwegian_development_assistance.csv")
+
+Norad_clean <- Norad_Norwegian_development_assistance %>%
+  clean_names()
+
+glimpse(Norad_clean)
+```
+
+**Creating a sub dataset**
+- After having a breef look at the data and carefully choosing the variables needed, we made a smaller dataset for i to be easier to work with. 
+- Then we changed the variables so that we computed the values "delmål" and "hovedmål", in other words 1 and 2, so that they become 1. 
+```{r, eval=FALSE}
+
+NORAD_subset <- Norad_clean %>%
+  select(policy_marker_biodiversity, policy_marker_climate_change_mitigation, description_of_agreement)
+
+Sub1 <- NORAD_subset %>%
+  mutate(policy_marker_biodiversity=ifelse(policy_marker_biodiversity%in%c(1,2), 1, 0))%>%
+  mutate(policy_marker_climate_change_mitigation=ifelse(policy_marker_climate_change_mitigation%in%c(1,2), 1, 0))%>%
+  mutate(policy_marker_climate_change_adaptation=ifelse(policy_marker_climate_change_adaptation%in%c(1,2), 1, 0))
+
+```
+
+**Solveig**
+This was just something Solveig wanted to try. 
+```{r, eval=FALSE}
+
+Token2 <- Sub1 %>%
+  unnest_tokens(input = description_of_agreement,
+                output = word,
+                token = "words")
+
+
+Token2 %>%
+  filter(policy_marker_climate_change_mitigation == 1) 
+
+Token2 %>%
+  filter(policy_marker_biodiversity == 1) 
+
+Token2 %>%
+  filter(policy_marker_biodiversity == 1 & policy_marker_climate_change_mitigation == 1) 
+
+```
+
+**Tokenizing**
+Then we start tokenizing the description variable so it would be possible for the model to read words. 
+
+```{r}
+install.packages("quanteda")
+library(quanteda)
+install.packages("stm")
+library(stm)
+install.packages("reshape2")
+library(reshape2)
+library(SnowballC)
+install.packages("tm")
+library(tm)
+
+
+NORAD_subset <- Norad_clean %>%
+  select(policy_marker_biodiversity, policy_marker_climate_change_mitigation, policy_marker_climate_change_adaptation, description_of_agreement, agreement_number, year)%>%
+  filter(!str_detect(description_of_agreement, "Description is missing | Temporarily anonymised")) %>% 
+  select(-(year, disbursements_1000_nok, disbursements_1000_usd)) %>% unique()
+
+Token1 <- NORAD_subset %>%
+  unnest_tokens(input = description_of_agreement,
+                output = word,
+                token = "words") #Her velger vi om vi vil ha setninger, ord eller vers eks. 
+
+Token1 %>%
+  count(agreement_number, word, sort = TRUE) #Counting the number 
+
+Token1 <- Token1 %>%
+  anti_join(stop_words, by = "words") #Removing stopwords. 
+
+Token1
+
+NORAD_DFM <- Token1 %>% #Creating the data frame matrix. 
+  count(agreement_number, word, name = "count") %>% 
+  #bind_tf_idf()
+  cast_dfm(agreement_number,
+           word, 
+           count)
+
+NORAD_DFM
+
+# docvars(NORAD_DFM) <- NORAD_subset$policy_marker_biodiversity #legge innpolicy mark ir i DFM som docvar 
+#topic1 <- stm(NORAD_DFM, 
+#              init.type = "LDA", 
+#              K = 50, 
+#              seed = 910, 
+#              prevalence = tilde climatemit + biodiv, 
+#               verbose = TRUE)
+```
+
+
+**K-test**
+
+```{r}
+
+##K-test
+library(future)
+library(furrr)
+library(stm)
+#plan(multisession)
+
+K <- c(15, 25, 45, 55, 75, 95)
+
+many_models <- tibble(K = K) %>%
+  mutate(topic_model = map(K, ~ stm(NORAD_DFM, K = ., # future_map tatt vekk
+                                           verbose = TRUE, 
+                                           max.em.its = 50)))
+                                  #.options = furrr_options(seed = TRUE)))
+
+
+## Making the plots for the K- values:
+
+heldout <- make.heldout(NORAD_DFM) # Making the heldout measure
+
+k_result <- many_models %>% # Using mutate to make new variables
+mutate(exclusivity = map(topic_model, exclusivity), # Using map to iterate over all topic models in the many_models object and fetch the exclusivity measure
+semantic_coherence = map(topic_model, semanticCoherence, NORAD_DFM), # Fetching semantic coherence measure
+eval_heldout = map(topic_model, eval.heldout, heldout$missing), # Feting the heldout measure
+residual = map(topic_model, checkResiduals, NORAD_DFM), # Fething the residuals measure
+iterations = map_dbl(topic_model, function(x) length(x$convergence$bound))) # Fetching the number of iterations for each model
+
+k_result %>%
+transmute(K, # Make a new dataframe out of the old one starting with K (number of topics)
+Residuals = map_dbl(residual, "dispersion"), # Adding residual measure
+`Exclusivity`= map_dbl(exclusivity, mean), # Adding exclusivity measure
+`Semantic coherence`= map_dbl(semantic_coherence, mean), # Adding semantic coherence measure
+`Held-out likelihood`= map_dbl(eval_heldout, "expected.heldout")) %>% # Adding held-out likelihood measure
+gather(Metric, Value, -K) %>% # Make it into a long dataframe
+ggplot(aes(K, Value, color = Metric)) + # Plot number of topic agains the different metrics (diagnostics)
+geom_line(size = 1.5, alpha = 0.7, show.legend = FALSE) + # Make a line graph
+facet_wrap(~Metric, scales = "free_y") + # Make small different plots for each metric
+labs(x = "K (number of topics)",
+y = NULL,
+title = "Model diagnostics by number of topics",
+subtitle = "The optimal number of topics seems to be around 5") +
+theme_bw()
+```
+
+**The topic model**
+```{r}
+
+topic1 <- stm(NORAD_DFM, 
+              init.type = "LDA", 
+              K = 50, 
+              seed = 910, 
+              max.em.its = 2, 
+              verbose = TRUE)
+
+topic_word_prob <- tidy(topic1,
+                        matrix = "beta")
+
+topics <- tidy(topic1,
+               matrix = "gamma",
+               document_names = rownames(NORAD_DFM))
+
+topic_pm <- topics %>%
+  pivot_wider(names_from = topic, values_from = gamma) %>%
+  left_join(NORAD_subset, by = c("document" = "agreement_number"))
+
+topic_pm
+```
+
+**Random Forest model**
+This chapter is not finished
+```{r}
+
+```
+
+**Visualisations**
+1. Regional developments
+2. Was there prvided more money to aid after the refugee crisis?
+3. After 2009 (first climate election), was there given more aid money towards climate actions?
+4. Is there a correlation between nation/region and climate, does some regions have more climate money or money given to biodiversity?
+5. Company, is there a correlation between different companies and some policymarkers?
+6. Is there a correlation between the markers? 
+
+```{r}
+
+```
+
+**Continuous work**
+- An other model to try....
