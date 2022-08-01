@@ -1,0 +1,462 @@
+---
+title: "Prosjekt2"
+author: "Eira Nybakk"
+date: '2022-07-26'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+*Main task*
+Norad collects information about a number of aid agreements given in Norway. They have data on the agreement partners, the budget, budget post, to whom the aid is given, for how long etc. In addition they collect information about the target of the agreement, in other words a short description of the purpose of the aid agreement, and what policy marker these agreements can be labled as, both as main goal and interim goal. The partners of the agreements are the one sending in this data and NORAD collects and structure is. I other words can the policy markers be both wrong or missing. This information is in other words both biased and not reliable. NORAD therefore asked us is we could find a way to automise the policy marking of the agreements by using the other variables and machine learning. 
+
+One of the NORAD employees had already tried this and the results are the policy markers that already exists in the dataset. There are a number of policy markers in there, however, we were told to focus on biodiversity, climate change mitigation and climate change adaption. 
+
+
+**Brainstorming**
+To improve the model that NORAD already had, we had to use  a variety of models, after adding more information to it. By unsupervised machine learning we would be able to add more information to the model. The challenge when using unsupervised machine learning is that the output are not going to reproduce predefined output. 
+
+
+
+**Modifying the model**
+The main goal was to automate input from the Topic model. 
+When the topics from the topic model was produced, would the variables mitigation, adaption and biodiversity correlate in a varied degree with the topic. The process of picking the topics could be automated by picking topics with high correlation score on each of these variables. For example correlates topic 4 with biodiversity. Then we would pick the documents which correlates with topic 4. these documents will have the value 1 in a new collum to be made.  all other documents would have the value 0. 
+
+**Utfordringer**
+
+
+
+
+
+Dokumenter med navn og variabel ---> topicmodel: emner: ---> korr variabel og emner, ---> korr emne og dokumenter, --> mat datasettet med denne verdien. Bruk i Forest model. 
+
+```{r pressure, echo=FALSE, eval=FALSE}
+plot(pressure)
+install.packages("tidymodels")
+install.packages("stopwords")
+install.packages("tidytext")
+install.packages("textrecipes")
+install.packages("themis")
+install.packages("janitor")
+install.packages("noradstats") #Not available for this version of R
+install.packages("doParallel")
+
+library(tidyverse)
+library(tidymodels)
+library(stopwords)
+library(tidytext)
+library(stringr)
+library(textrecipes)
+library(themis)
+library(ranger)
+library(doParallel)
+library(noradstats)#
+library(here)
+library(janitor)
+library(knitr)
+library(iterators)
+library(parallel)
+```
+
+**Dowload data**
+- Since the data we need and use for our assignment is provided by NORAD theirself, we used their webside to download the dataset. 
+- From the webside we chose the variables needed and for the prefered years. We would like to include all variables and from the years 2013 til 2021, since those were the years that NORAD used. 
+- We also made the data into a dataset. 
+- We made the variable names more tidy, and had a quick look at the dataset. 
+
+
+```{r, eval=FALSE}
+Norad_Norwegian_development_assistance <- read_csv("~/Documents/Statsvitenskap /Political Data Science Hacaton/Datasett/Norad-Norwegian_development_assistance.csv")
+
+library(janitor)
+Norad_clean <- Norad_Norwegian_development_assistance %>%
+  clean_names()
+
+glimpse(Norad_clean)
+```
+
+**Creating a sub dataset**
+- After having a breef look at the data and carefully choosing the variables needed, we made a smaller dataset for it to be easier to work with. 
+- Then we changed the policy markers so that we computed the values "delmål" and "hovedmål", in other words 1 and 2, so that they become 1. 
+```{r, eval=FALSE}
+
+NORAD_subset <- Norad_clean %>%
+  select(policy_marker_biodiversity, policy_marker_climate_change_mitigation, policy_marker_climate_change_adaptation, description_of_agreement, year, agreement_number, policy_marker_gender_equality)
+
+
+NORAD_subset <- NORAD_subset %>%
+  mutate(policy_marker_biodiversity=ifelse(policy_marker_biodiversity%in%c(1,2), 1, 0))%>%
+  mutate(policy_marker_climate_change_mitigation=ifelse(policy_marker_climate_change_mitigation%in%c(1,2), 1, 0))%>%
+  mutate(policy_marker_climate_change_adaptation=ifelse(policy_marker_climate_change_adaptation%in%c(1,2), 1, 0))%>%
+   mutate(policy_marker_gender_equality=ifelse(policy_marker_gender_equality%in%c(1,2), 1, 0))
+
+```
+
+
+**Tokenizing**
+Then we start tokenizing the description variable so it would be possible for the model to read words. lastly we created a dataframe of the wordcount. 
+
+```{r}
+
+library(quanteda)
+
+library(stm)
+
+library(reshape2)
+library(SnowballC)
+
+library(tm)
+library(dplyr)
+
+
+NORAD_subset <- NORAD_subset %>% #Include gender here
+  select(policy_marker_biodiversity, policy_marker_climate_change_mitigation, policy_marker_climate_change_adaptation, description_of_agreement, agreement_number, year, policy_marker_gender_equality)%>%
+  filter(description_of_agreement != "Description is missing") %>% 
+  filter(description_of_agreement != "Temporarily anonymised") %>% 
+  select(-year) %>%
+  unique()
+
+##Do again
+Token1 <- NORAD_subset %>%
+  unnest_tokens(input = description_of_agreement,
+                output = word,
+                token = "words") #Her velger vi om vi vil ha setninger, ord eller vers eks. 
+
+Token1 %>%
+  count(agreement_number, word, sort = TRUE) #Counting the number 
+
+Token1 <- Token1 %>%
+  anti_join(stop_words, by = "word") #Removing stopwords. 
+# For å få norsk # stop_words <- get_stopwords(language="no")
+
+
+NORAD_DFM <- Token1 %>% #Creating the data frame matrix. 
+  count(agreement_number, word, name = "count") %>% 
+  #bind_tf_idf()
+  cast_dfm(agreement_number,
+           word, 
+           count)
+
+NORAD_DFM
+```
+
+
+**K-test**
+- A K- test would tell us how many topics this model would be best with. We tried with 15, 25, 45, 55, 75 and 96 topics. By looking at the plot, we decides on ...... topics. 
+
+- The creation on the K- test and the models here is what was the biggest challange for us.
+```{r}
+
+##K-test
+library(future)
+library(furrr)
+library(stm)
+#plan(multisession)
+
+getwd()
+K <- c(15, 25, 45, 55, 75, 95)
+
+many_models <- tibble(K = K) %>%
+  mutate(topic_model = map(K, ~ stm(NORAD_DFM, K = ., # future_map tatt vekk
+                                           verbose = TRUE, 
+                                           max.em.its = 50)))
+                                 #.options = furrr_options(seed = TRUE)))
+save(many_models, file = "~/Documents/Statsvitenskap /Political Data Science Hacaton/Script/NORAD/many_models.rda")
+
+glimpse(many_models)
+
+## Making the plots for the K- values:
+
+heldout <- make.heldout(NORAD_DFM) # Making the heldout measure
+
+
+##### Trenger ikke denne lenger, den er for å få ut plottet. 
+k_result <- many_models %>% 
+  mutate(exclusivity = map(topic_model, exclusivity),
+         semantic_coherence = map(topic_model, semanticCoherence, NORAD_DFM), 
+         eval_heldout = map(topic_model, eval.heldout, heldout$missing), 
+         residual = map(topic_model, checkResiduals, NORAD_DFM), 
+         iterations = map_dbl(topic_model, function(x) length(x$convergence$bound)))
+
+glimpse(many_models)
+
+k_result %>%
+  transmute(K,
+          Residuals = map_dbl(residual, "dispersion"),
+          `Exclusivity`= map_dbl(exclusivity, mean),
+          `Semantic coherence`= map_dbl(semantic_coherence, mean), 
+          `Held-out likelihood`= map_dbl(eval_heldout, "expected.heldout")) %>%
+  gather(Metric, Value, -K) %>%
+  ggplot(aes(K, Value, color = Metric)) + 
+  geom_line(size = 1.5, alpha = 0.7, show.legend = FALSE) +
+  facet_wrap(~Metric, scales = "free_y") +
+  labs(x = "K (number of topics)", 
+       y = NULL,
+       title = "Model diagnostics by number of topics",
+       subtitle = "The optimal number of topics seems to be around 5") +
+  theme_bw()
+
+##
+
+save.image(k_result, file = "~/Documents/Statsvitenskap /Political Data Science Hacaton/Script/NORAD/k_result.")
+
+```
+
+**The topic model**
+```{r}
+many_models2 <- M %>%
+  filter(K == 140) %>%  
+  pull() %>% 
+  .[[1]]
+
+#topic1 <- stm(NORAD_DFM, 
+ #             init.type = "LDA", 
+  #            K = 50, 
+   #           seed = 910, 
+    #          max.em.its = 2, 
+     #         verbose = TRUE)
+
+topic_word_prob <- tidy(many_models2,
+                        matrix = "beta")
+
+save(topic_word_prob, file = "~/R 22 sommerskole/NORAD/topic_word_prob.rda")
+
+# gammaverdiene er på dokumenter
+topics <- tidy(many_models2,
+               matrix = "gamma",
+               document_names = rownames(NORAD_DFM))
+#toppdokumenter som lader på emne - bruk gammaverdiene høyest 
+toppdocsEMNE <- topics %>% 
+  filter(topic== 2) %>% #topic nr
+  slice_max(order_by = gamma, n = 100) #høyest topicverdi på gamma på emnet
+
+summary(toppdocsEMNE$gamma) # lavste gammaverdien og høyeste
+
+toppdocsEMNE$document[1] %in% NORAD_subset$agreement_number
+print(toppdocsEMNE$document[1])
+
+# toppdokumenter + norad subset = topp100
+# tekster subset, legger inn topic score tioppdokumenter på det gamle noradsubsettet
+topp100 <- NORAD_subset %>% 
+  filter(agreement_number %in% toppdocsEMNE$document) # sjekker om agreement number finnes i listen over topp 100 på emne f eks 67 eller 2
+
+
+# Sys.getlocale() Gard skrev i inn for å sjekke  noe Git feil
+
+
+
+# HVOR MYE LADER HVERD DOKUMENT PÅ TOPICene? 
+
+#gamma dokumentverdiene på emene vi lagde i stad, tar med gammaverdiene og left joiner inn Norad-subset etter avtalenummer agreement number, som er dokument her 
+# i topics kalles den document, i den andre heter den agreement_number 
+topic_pm <- topics %>%
+  pivot_wider(names_from = topic, values_from = gamma) %>%
+  left_join(NORAD_subset, by = c("document" = "agreement_number"))
+
+topic_pm
+
+save(topic_pm, file = "~/R 22 sommerskole/NORAD/topic_pm.rda")
+
+#korrelasjon Det funker
+lm(policy_marker_gender_equality ~ `67` + `128`, data = topic_pm) %>%
+  stargazer::stargazer(type = "text")
+
+
+
+# binde Forestmodellen til topicmodellen? SOLVEIG stoppet opp her
+randomforest(gender ~ variabel + variabel2 + variabel3 + politcal_women + otherwomen, data = topicdata)
+
+#left j på ny
+
+kkNORAD_subset_topics <- topic_pm %>% 
+  #rename("political_women" = "67",
+   #      "otherwomen" = "128") %>%
+  select(document, `67`, `128`, `119`, description_of_agreement, policy_marker_biodiversity, policy_marker_climate_change_mitigation,
+         policy_marker_climate_change_adaptation, policy_marker_gender_equality) %>%
+  mutate(highload_67 = ifelse(`67` > 0.8, 1, 0), #mean evnt
+         highload_128 = ifelse(`128` > 0.8, 1, 0), 
+          highload_119 = ifelse(`119` > 0.1, 1, 0))
+
+##
+#lmitigation119 <- topic_pm %>% 
+ # select(document, description_of_agreement, policy_marker_biodiversity, #policy_marker_climate_change_mitigation, policy_marker_climate_change_adaptation, #policy_marker_gender_equality, `119`)
+
+
+
+#  mutate(highload_67 = ifelse(`67` > mean(`67`), 1, 0), #mean evnt
+   #      highload_128 = ifelse(`128` > mean(`128`), 1, 0))
+
+
+# korrelasjon mellom emner
+cor(NORAD_subset_topics %>%
+      select(`67`, `128`))
+
+
+mean(topic_pm$`67`)
+
+
+# confusion matrix
+NORAD_subset_topics %>%
+  group_by(policy_marker_gender_equality, highload_67) %>%
+  count()
+
+table(NORAD_subset_topics$highload_67, #highload
+      NORAD_subset_topics$policy_marker_gender_equality)
+
+## bra conf matrix
+kkNORAD_subset_topics %>%
+  group_by(policy_marker_climate_change_mitigation, highload_119) %>%
+  count()
+
+#dårlig conf matrix
+table(kkNORAD_subset_topics$highload_119, #highload
+      kkNORAD_subset_topics$policy_marker_climate_change_mitigation)
+
+
+```
+
+
+
+#nytt datasett
+#FINAL <- topic_pm %>% 
+#  select(document, 67, description_of_agreement, policy_marker_gender_equality) %>% 
+ # group_by(document) %>% 
+  #summarise(gamma = mean(gamma))  # DRITT
+  
+  
+**Ifelse**
+- This is where we specify the topic for each dokument
+```{r}
+top_docs <- topic_pm %>%
+  filter(!topic %in% c(1, , 3, 4)) %>% # I remove the topics I labelled "noise"
+  group_by(dokument) %>% # Find the next statistic per document
+  summarise(gamma = mean(gamma)) # Find the mean value
+
+topic_assignment <- left_join(top_docs, topic_pm, by = c("document", "gamma")) # Merge the dataframe
+```
+
+
+**Random Forest model**
+This chapter is not finished
+```{r}
+#ABDULLAH/ Einar sin kode
+```
+
+**Visualisations**
+The data set that NORAD has is large and has many possibilities regarding visualizations and statistics. 
+The first visualization that would come in handy for us, was a bar chart of the most frequent words used in the description of topics of biodiversity, mitigation and adaption. This way, we thought that the manually picking topics would be easier since we then could correlate if any topics had some words similar than the previous model. 
+
+```{r}
+library(tidyverse)
+data <- read_csv("C:/Users/Nikolai/Documents/Prosjekt_ISSSV1337/NORAD/Ny mappe/Filinnlesing/Norad-Norwegian_development_assistance.csv")
+
+#Hvordan fjerne dupliserte dataverdier?
+utvalgt_data <- data %>% 
+  group_by(description_of_agreement, policy_marker_biodiversity, policy_marker_climate_change_adaptation, policy_marker_climate_change_mitigation) %>% 
+  select()
+
+utvalgt_data <- utvalgt_data %>% 
+  filter(description_of_agreement != "Description is missing") %>% 
+  filter(description_of_agreement != "Temporarily anonymised") %>% 
+  mutate(policy_marker_biodiversity=ifelse(policy_marker_biodiversity%in%c(1,2), 1, 0))%>%
+  mutate(policy_marker_climate_change_mitigation=ifelse(policy_marker_climate_change_mitigation%in%c(1,2), 1, 0)) %>% 
+  mutate(policy_marker_climate_change_adaptation=ifelse(policy_marker_climate_change_adaptation%in%c(1,2), 1, 0)) %>% 
+  unique()
+
+nytt_datasett <- cbind(utvalgt_data, "navn") %>%  rename(navn = ...5)
+
+
+for (r in 1:nrow(nytt_datasett)) {
+  description <- utvalgt_data[r, 1]
+  setning <- ""
+  bio <- nytt_datasett[r, 2]
+  ada <- nytt_datasett[r, 3]
+  mit <- nytt_datasett[r, 4]
+  if (bio == "1") {
+    setning <- paste(setning, "bio", sep = "")
+  }
+  if (ada == "1") {
+    setning <- paste(etning, "ada", sep = "")
+  }
+  if (mit == "1") {
+    setning <- paste(setning, "mit", sep = "")
+  }
+  nytt_datasett[r,5] <- setning
+  print(r)
+}
+save(nytt_datasett, file = "C:/Users/Nikolai/Documents/Prosjekt_ISSSV1337/NORAD/Ny mappe/nyttDatasett.csv")
+
+library(tidytext)
+library(SnowballC) #For å stemme ordene
+library(dplyr)
+library(stopwords)
+
+#Må omgjøre ordene til små/store bokstaver
+tokenisert_datasett <- nytt_datasett %>%
+  group_by(navn, description_of_agreement) %>% 
+  select() %>% 
+  unnest_tokens(input = description_of_agreement, #Splitter ordene fra hverandre
+                output = ord,
+                token = "words") %>% 
+  mutate(stem = wordStem(ord)) #Fjerner endelsene på ordene
+
+tokenisert_datasett <- tokenisert_datasett %>% 
+  anti_join(stop_words, by = c("ord" = "word"))  #Fjerner stoppord
+
+plottet_datasett <- tokenisert_datasett %>% 
+  count(navn, ord) %>% 
+  group_by(navn) %>% 
+  slice_max(n, n = 8) %>% 
+  ungroup()
+
+plottet_datasett %>% 
+  ggplot(aes(n, fct_reorder(ord, n), 
+             fill = navn)) + 
+  geom_bar(stat = "identity") + 
+  facet_wrap(~ navn, ncol = 4, scales = "free") + 
+  labs(x = "", y = "") + 
+  theme_bw() + 
+  theme(legend.position = "none") 
+
+library(wordcloud)
+
+ordsky <- tokenisert_datasett %>% 
+  count(navn, ord)
+
+ordsky %>% 
+  with(wordcloud(ord, n,
+                 max.words = 100, 
+                 colors = brewer.pal(8, "Dark2")[factor(tokenisert_datasett$navn)]))
+
+idf_datasett <- tokenisert_datasett %>% 
+  group_by(navn, ord) %>% select() %>% 
+  count(navn, ord, name = "count") %>% 
+  bind_tf_idf(ord, navn, count)
+
+plottet_idf_datasett <- idf_datasett %>% 
+  group_by(navn) %>% 
+  slice_max(tf_idf, n = 5) %>% 
+  ungroup()
+
+plottet_idf_datasett %>% 
+  ggplot(aes(tf_idf, fct_reorder(ord, tf_idf),
+             fill = navn)) + 
+  geom_bar(stat = "identity") +
+  facet_wrap(~ navn, ncol = 4, scales = "free") %>% 
+  labs(x = "", y = "") + 
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+*Challenges*
+**Computers**
+- After six weeks worth of effort the model is complete, however, we ran into  many challenges during the process. 
+- First of all, running this model was hard on our computers. If we had stronger and more suitable computers, this model would not have taken such a long time. Therefore we advice NORAD to choose their computers wisely when running this model/ code. 
+**Manually picking topics**
+- In addition, the manually picking topics is both biased and not finished in the best possible way. This is both because of time limitations and because we had to make easier models to make sure our computers would manage it. 
+
+*Continuous work*
+As we all know, there are plenty of ways to do things when using machine learning. Therefore, topic modeling is just one way of modeling. 
+We used bag of words to tokenize the words, an other model to try could for example be tf-idf, like we did to get the words most frequent from ech topic. 
