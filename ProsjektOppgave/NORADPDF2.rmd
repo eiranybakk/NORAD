@@ -1,0 +1,828 @@
+---
+title: "NORAD classification model 2022"
+author: 'Eira Nybakk, Abdullah Almudaffar, Nikolai Koop, Oda Marchand '
+date: '2022-08-03'
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE, echo = FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, error = FALSE, warning = FALSE)
+```
+*Main task*
+Norad collects information about a number of aid agreements given in Norway. They have data on the agreement partners, the budget, budget post, to whom the aid is given, for how long etc. In addition they collect information about the target of the agreement, in other words a short description of the purpose of the aid agreement, and what policy marker these agreements can be labled as, both as main goal and interim goal. The partners of the agreements are the one sending in this data and NORAD collects and structure is. In other words can the policy markers be both wrong or missing. This information is in other words both biased and not reliable. NORAD therefore asked us if we could find a way to automise the policy marking of the agreements by using the other variables and machine learning. 
+
+One of the NORAD employees had already tried this and the results are the policy markers that already exists in the dataset. There are a number of policy markers in there, however, we were told to focus on biodiversity, climate change mitigation and climate change adaption, and to some degree, gender equality. 
+
+The first thing we did, was have a look at how the data we were left with looked, and did some visualisation and structuring of this data. 
+
+#
+Norad manages on an annual basis __ number of aid agreements. In this work, a lot of time and resources go into classifying the aid agreements into different predefined categories which they call policy markers. The plan for this project was to assist in the automation of Norad's classification of aid agreements according to the following four policy markers: climate change mitigation, climate change adaptation, biodiversity and gender equality. NORAD has already initiated an automation of the policy marker biodiversity (?). NORAD had previously reprocessed the data, created a TF-IDF and run a Random Forest model. Such a model belongs to the category of supervised machine learning. It tries to predict new data based on the data the model has been fed with (here the aid agreements' affiliation with the policy markers). The data set is thus divided into a training set and a test set. However, there was potential for improvement in the predictive ability of the computer model, because despite the fact that the model worked well, it was not able to "guess" or assign the aid agreements the correct policy marker in all cases.
+
+Data Collection and data cleaning:
+- Description of the policy markers
+The dataset we used extends from 2013-2021? and contains more than 128,000 documents. The data set was prepared and downloaded from norad's website: https://resultar.norad.no/microdata.
+
+*Some preprocessing* of the files to get them in the right format
+
+```{r, echo = FALSE, eval=FALSE}
+library(tidyverse)
+load("D:/Prosjekt/nyttDatasett.Rda")
+
+#Reads the dataset from NORAD
+data <- read_csv("C:/Users/Nikolai/Documents/Prosjekt_ISSSV1337/NORAD/Ny mappe/Filinnlesing/Norad-Norwegian_development_assistance.csv")
+
+#Groups the dataset by the policy markers
+utvalgt_data <- data %>% 
+  group_by(description_of_agreement, policy_marker_biodiversity, policy_marker_climate_change_adaptation, policy_marker_climate_change_mitigation) %>% 
+  select()
+#Cleans the dataset
+utvalgt_data <- utvalgt_data %>% 
+  filter(description_of_agreement != "Description is missing") %>% 
+  filter(description_of_agreement != "Temporarily anonymised") %>% 
+  mutate(policy_marker_biodiversity=ifelse(policy_marker_biodiversity%in%c(1,2), 1, 0))%>%
+  mutate(policy_marker_climate_change_mitigation=ifelse(policy_marker_climate_change_mitigation%in%c(1,2), 1, 0)) %>% 
+  mutate(policy_marker_climate_change_adaptation=ifelse(policy_marker_climate_change_adaptation%in%c(1,2), 1, 0)) %>% 
+  unique()
+
+#Creates a new dataset where the policy_markers are named
+#The method is very inefficient and I recommend using filter() instead
+
+#How to load a object inside R? *********************
+
+# nytt_datasett <- cbind(utvalgt_data, "navn") %>%  rename(navn = ...5)
+#
+# for (r in 1:nrow(nytt_datasett)) {
+#   description <- utvalgt_data[r, 1]
+#   setning <- ""
+#   bio <- nytt_datasett[r, 2]
+#   ada <- nytt_datasett[r, 3]
+#   mit <- nytt_datasett[r, 4]
+#   if (bio == "1") {
+#     setning <- paste(setning, "bio", sep = "")
+#   }
+#   if (ada == "1") {
+#     setning <- paste(setning, "ada", sep = "")
+#   }
+#   if (mit == "1") {
+#     setning <- paste(setning, "mit", sep = "")
+#   }
+#   if (setning == "") {
+#     setning <- "ingen"
+#   }
+#   nytt_datasett[r,5] <- setning
+#   print(r)
+# }
+# save(nytt_datasett, file = "C:/Users/Nikolai/Documents/Prosjekt_ISSSV1337/NORAD/Ny mappe/nyttDatasett.Rda")
+```
+
+*Document observations*
+The variables we have used are the policymarkers previously mentioned, in addition to description of agreement, agreement number. Description of agreement was the variable used to tokenize, since it is in text formate. Agreement number was used as an ID for each document. The policy markers were the variables we wanted to improve, and was used to improve the prediction of the new variables. 
+
+
+```{r, echo = FALSE, fig.height = 5, eval=FALSE}
+#Finding the number of observation in the policy_markers
+korrelasjon_punkter <- matrix(nrow = 3, ncol = 3)
+colnames(korrelasjon_punkter) <- c("BIODIVERSITY", "MITIGATION","ADAPTATION")
+rownames(korrelasjon_punkter) <- c("biodiversity", "mitigation", "adaptation")
+korrelasjon_punkter[1,1] <- nrow(filter(nytt_datasett, navn == "bio"))
+korrelasjon_punkter[1,2] <- nrow(filter(nytt_datasett, navn == "biomit"))
+korrelasjon_punkter[1,3] <- nrow(filter(nytt_datasett, navn == "bioada"))
+korrelasjon_punkter[2,1] <- nrow(filter(nytt_datasett, navn == "biomit"))
+korrelasjon_punkter[2,2] <- nrow(filter(nytt_datasett, navn == "mit"))
+korrelasjon_punkter[2,3] <- nrow(filter(nytt_datasett, navn == "adamit"))
+korrelasjon_punkter[3,1] <- nrow(filter(nytt_datasett, navn == "bioada"))
+korrelasjon_punkter[3,2] <- nrow(filter(nytt_datasett, navn == "adamit"))
+korrelasjon_punkter[3,3] <- nrow(filter(nytt_datasett, navn == "ada"))
+
+barplot(korrelasjon_punkter, main = "Number of observations", names.arg = colnames(korrelasjon_punkter), xlab = "Cathegory", ylab = "Observations", col = c("green", "orange", "blue")) 
+legend("topleft", rownames(korrelasjon_punkter), cex = 0.8, fill = c("green", "orange", "blue"))
+```
+
+
+
+```{r}
+#install.packages("tinytex")
+library(tinytex)
+
+#tinytex::install_tinytex()
+knitr::include_graphics("/Volumes/Transcend/Prosjekt/plot 0.png")
+```
+
+***Plot 0: illustrates how many document observations there are in each policy marker.***
+
+*Word clouds based on Bag of Words*
+We aligned the words, and removed English stop words. Beyond that, we wanted to retain as much information as possible in the topic model, and therefore refrained from stemming. Some choose to string two or three words together in bi- and tri-grams, however, we decided on single words.Topic modeling works very well with only one word, unigrams, and we therefore left the words alone.
+
+This preproccessing was done for the visualizations, however, the same methods were used before the topic model.
+
+To visualize how the word frequenzy was distributed, Nikolai made some word clouds to more clearly have a look at this.
+
+***Bag of words is a collection of words ord, based on word frequency per document.***
+
+```{r, echo = FALSE, fig.height = 6, eval=FALSE}
+library(wordcloud)
+library(RColorBrewer)
+library(dplyr)
+library(stopwords)
+library(tidytext)
+
+##Makes a wordcloud
+
+ordsky_klima <- nytt_datasett %>% 
+  group_by(navn, description_of_agreement) %>% 
+  filter(navn != "ingen") %>% 
+  mutate(navn = "klima") %>% 
+  unnest_tokens(input = description_of_agreement, 
+                output = ord,
+                token = "words") %>% 
+  #mutate(stem = wordStem(ord)) %>% 
+  group_by(navn) %>% 
+  count(navn, ord) %>% 
+  ungroup() %>% 
+  anti_join(stop_words, by = c("ord" = "word")) 
+
+ordsky_klima <- ordsky_klima %>% 
+  filter(nchar(ord) > 2) %>% #Removes very short words
+  with(wordcloud(ord, n,
+                 max.words = 50, 
+                 colors = brewer.pal(8, "Dark2")))
+
+
+ordsky_ikke_klima <- nytt_datasett %>% 
+  group_by(navn, description_of_agreement) %>% 
+  filter(navn == "ingen") %>% 
+  unnest_tokens(input = description_of_agreement, 
+                output = ord,
+                token = "words") %>% 
+  #mutate(stem = wordStem(ord)) %>% 
+  group_by(navn) %>% 
+  count(navn, ord) %>% 
+  ungroup() %>% 
+  anti_join(stop_words, by = c("ord" = "word")) 
+
+ordsky_ikke_klima <- ordsky_ikke_klima %>% 
+  filter(nchar(ord) > 2) %>% #Removes very short words
+  with(wordcloud(ord, n,
+                 max.words = 50, 
+                 colors = brewer.pal(8, "Dark2")))
+
+#par(mfrow = c(1, 2))
+ordsky_klima
+#par(mfrow = c(1, 1))
+```
+
+```{r}
+knitr::include_graphics("/Volumes/Transcend/Prosjekt/plot 1.png")
+```
+
+***Plot 1: The first plot shows how big a role single words play for all three climate markers bio diversity, climate chain adaptation and climate change mitigation***
+
+```{r, echo = FALSE, fig.height = 6, eval=FALSE}
+ordsky_ikke_klima
+```
+
+```{r}
+knitr::include_graphics("/Volumes/Transcend/Prosjekt/plot 2.png")
+```
+
+***Plot 2: In plot 2 we see the word cloud for all the markers in Norad's data set that are not related to the three policy markers. We see that the words "project" and "support" contribute significantly.***
+
+***In the barplot are words grouped according to the policy markers***
+
+```{r, echo = FALSE, fig.out = "50%", eval=FALSE}
+library(tidytext)
+library(SnowballC) #For C% stemme ordene
+library(dplyr)
+library(stopwords)
+
+#Finds the frequency of words sorted by the policy_markers
+tokenisert_datasett <- nytt_datasett %>%
+  group_by(navn, description_of_agreement) %>% 
+  select() %>% 
+  unnest_tokens(input = description_of_agreement, 
+                output = ord,
+                token = "words") %>% 
+  mutate(stem = wordStem(ord))
+
+#Removes stopwords to make the file smaller
+tokenisert_datasett <- tokenisert_datasett %>% 
+  anti_join(stop_words, by = c("ord" = "word"))  
+
+#Uses the dataset to plot the frequency of words
+
+plottet_datasett <- tokenisert_datasett %>% 
+  count(navn, ord) %>% 
+  group_by(navn) %>% 
+  slice_max(n, n = 8) %>% 
+  ungroup()
+
+plottet_datasett %>% 
+  ggplot(aes(n, fct_reorder(ord, n), 
+             fill = navn)) + 
+  geom_bar(stat = "identity") + 
+  facet_wrap(~ navn, ncol = 4, scales = "free") + 
+  labs(x = "", y = "") + 
+  theme_bw() + 
+  theme(legend.position = "none") 
+
+```
+ 
+```{r}
+knitr::include_graphics("/Volumes/Transcend/Prosjekt/plot 3.png")
+```
+
+***Plot 3 illustrates bars of or based on the measure Bag-of-words.***
+
+These two plots have used different method for counting the words in each document. The one above used bag of words and the one under used TF-IDF. 
+
+* TF-IDF: a better measure? *
+**TF-IDF takes the words' relative frequency into account, while bag of word only counts each word per document.**
+
+Ideally, we should have used TF-IDF to create DFM, which is a more advanced way of counting words than bag of words, which is the method we have used. TF-IDF weights words, while bag of words only measures the frequency of words per document. 
+
+
+```{r, echo = FALSE, fig.height=4, eval=FALSE}
+#Finds the term frequency using TF-IDF
+#Plots the terms using ggplot
+
+library(dplyr)
+
+idf_datasett <- tokenisert_datasett %>% 
+  group_by(navn, ord) %>% select() %>% 
+  count(navn, ord, name = "count") %>% 
+  bind_tf_idf(ord, navn, count)
+
+plottet_idf_datasett <- idf_datasett %>% 
+  group_by(navn) %>% 
+  slice_max(tf_idf, n = 5) %>% 
+  ungroup()
+
+plottet_idf_datasett %>% 
+  ggplot(aes(tf_idf, fct_reorder(ord, tf_idf),
+             fill = navn)) + 
+  geom_bar(stat = "identity") +
+  facet_wrap(~ navn, ncol = 4, scales = "free") +
+  labs(x = "", y = "") + 
+  theme_bw() + 
+  theme(legend.position = "none") 
+```
+
+```{r}
+knitr::include_graphics("/Volumes/Transcend/Prosjekt/plot 4.png")
+```
+
+** Plott 4 illustrerer TF-IDF **
+
+#___#Abdullah:
+
+Machine learning, as we know, is about identifying patterns in big data. The purpose may, for example, be to make decisions or, for example, predict events and results.
+In this assignment, the aim is to predict which categories aid agreements belong to.
+Machine learning algorithms usually build mathematical models based on sample data or training data. These models are then used to make decisions.
+For example, the data Eira talked about can potentially be used as training data and test data in such a model.
+
+We have two known categories within machine learning, supervised and unsupervised learning:
+With unsupervised learning, we have data, but no conclusion. The goal is to find structure in the data and then classify it.
+
+With guided learning, the machine finds an unknown function from examples. The machine is taught to understand that the inputs predict the outputs.
+
+An example is distinguishing a bull from a bird. When our model sees that the animal has 4 legs, it is most likely a bull. If it has two legs and two wings, it is most likely a bird. We call this classification. If, for example, we would rather predict the weight of the animal, we then use regression. Because we then have a number.
+
+Classification is thus for putting a label on something, while regression is for putting a value.
+Similar to separating the bull from the bird, we want to separate different climate agreements from each other, whether they are mitigation, biodiversity or adaptation agreements. So here we use classification. If, for example, we were to measure the effect of the agreement, that is, how important the agreement is to the result, then we would have used regression. So this is the difference in our task.
+
+#___#ODA
+
+*2: Solutions, Methods, and findings  - TOPIC MODEL*
+**Brainstorming and method:**
+Why did we choose our method, how did we end up there..
+To assist NORAD in improving their classification, there were several options that could be interesting. The possibilities were there to improve the model that NORAD had already developed, by adjusting the data set and other parameters. However, we wanted to classify the information through a new approach, both to reveal useful information about datasets, but also to feed the model with more information. New information would be useful for seeing connections where you have not previously seen them, which would increase the possibilities of finding weaknesses in the current system. Not least, new information could possibly help the Random-Forest classification model to make better predictions. Topic modeling is an unsupervised machine learning model that calculates the probability that words appear in a document, along with other words that appear in that document and other documents. If there was human bias in the data set, which usually occurs, a new input with a different, unguided approach could help.
+
+
+
+This is the code for the preprossesing of topic model. 
+
+```{r pressure, eval=FALSE, , echo = FALSE, eval=FALSE}
+library(tidyverse)
+library(tidymodels)
+library(stopwords)
+library(tidytext)
+library(stringr)
+library(textrecipes)
+library(themis)
+library(ranger)
+library(doParallel)
+library(here)
+library(janitor)
+library(knitr)
+library(iterators)
+library(parallel)
+library(quanteda)
+library(stm)
+library(reshape2)
+library(SnowballC)
+library(tm)
+library(dplyr)
+library(future)
+library(furrr)
+library(stm)
+
+getwd()
+```
+
+```{r, eval=FALSE, echo = FALSE, eval=FALSE}
+Norad_Norwegian_development_assistance <- read_csv("~/Documents/Statsvitenskap /Political Data Science Hacaton/Datasett/Norad-Norwegian_development_assistance.csv")
+
+Norad_clean <- Norad_Norwegian_development_assistance %>%
+  clean_names()
+
+
+```
+
+```{r, eval=FALSE, echo = FALSE, eval=FALSE}
+NORAD_subset <- Norad_clean %>%
+  select(policy_marker_biodiversity, policy_marker_climate_change_mitigation, policy_marker_climate_change_adaptation, description_of_agreement, year, agreement_number, policy_marker_gender_equality)
+
+
+NORAD_subset <- NORAD_subset %>%
+  mutate(policy_marker_biodiversity=ifelse(policy_marker_biodiversity%in%c(1,2), 1, 0))%>%
+  mutate(policy_marker_climate_change_mitigation=ifelse(policy_marker_climate_change_mitigation%in%c(1,2), 1, 0))%>%
+  mutate(policy_marker_climate_change_adaptation=ifelse(policy_marker_climate_change_adaptation%in%c(1,2), 1, 0))%>%
+   mutate(policy_marker_gender_equality=ifelse(policy_marker_gender_equality%in%c(1,2), 1, 0))
+
+```
+
+```{r, eval=FALSE, echo = FALSE, fig.out = "50%", eval=FALSE}
+NORAD_subset <- NORAD_subset %>% 
+  select(policy_marker_biodiversity, policy_marker_climate_change_mitigation, policy_marker_climate_change_adaptation, description_of_agreement, agreement_number, year, policy_marker_gender_equality)%>%
+  filter(description_of_agreement != "Description is missing") %>% #Filtering out descriptions that are missing
+  filter(description_of_agreement != "Temporarily anonymised") %>% #Filtering out descriptions that are temporarily anonymised
+  select(-year) %>% #Selecting the years to be unique
+  unique() #Using only unique agreements to avoid the same agreements to be included many times. 
+
+Token1 <- NORAD_subset %>% #Tokenizing
+  unnest_tokens(input = description_of_agreement, #Using the variable description_of_agreement to be tokenized
+                output = word, #Choosing words to be tokenized by, not sentences for example. 
+                token = "words") #Calling the variable "words" 
+
+Token1 %>%
+  count(agreement_number, word, sort = TRUE) #Counting the number of words to prepare for data frame matrix.
+
+Token1 <- Token1 %>% 
+  anti_join(stop_words, by = "word") #Removing stopwords. To remove norwegian stopwords: stop_words <- get_stopwords(language="no"). 
+
+NORAD_DFM <- Token1 %>% #Creating the data frame matrix. 
+  count(agreement_number, word, name = "count") %>% 
+  #bind_tf_idf()
+  cast_dfm(agreement_number,
+           word, 
+           count)
+```
+
+
+**K-test**
+After preprossesing, the next step was to fint out how many topics were optimal for our data set. In this process, consideration of exclusivity, coherence, hold-out likelihood and residual terms must be considered. This is a manual interpretation of these plots. 
+
+We tried with 25, 45, 55, 75 and 95, 100, 120, 130, 140 and 160 topics. By looking at the plot, we decides on 140 topics. 
+
+```{r, eval=FALSE, echo = FALSE}
+K <- c(15, 25, 45, 55, 75, 95) #Choosing number of topics to try
+
+many_models <- tibble(K = K) %>%
+  mutate(topic_model = map(K, ~ stm(NORAD_DFM, K = ., #we first tried with future_map, but this did not word with our computers,
+                                    verbose = TRUE, #Telling model to talk while working
+                                    max.em.its = 50))) #Choosing number of renderings to make the model quicker.
+                                 #.options = furrr_options(seed = TRUE)))
+save(many_models, file = "~/Documents/Statsvitenskap /Political Data Science Hacaton/Script/NORAD/many_models.rda") #saving model to not have to run this code the entire time.
+
+```
+
+**Making the plots for the K- values**
+- This code do you not need, because we have the plot
+
+**Plot 9**
+
+```{r, eval=TRUE, echo = FALSE, out.width="50%"}
+
+#heldout <- make.heldout(NORAD_DFM) # Making the heldout measure
+
+#k_result <- many_models %>% 
+#  mutate(exclusivity = map(topic_model, exclusivity),
+#         semantic_coherence = map(topic_model, semanticCoherence, NORAD_DFM), 
+#         eval_heldout = map(topic_model, eval.heldout, heldout$missing), 
+#         residual = map(topic_model, checkResiduals, NORAD_DFM), 
+#         iterations = map_dbl(topic_model, function(x) length(x$convergence$bound)))
+
+
+#k_result %>%
+#  transmute(K,
+#          Residuals = map_dbl(residual, "dispersion"),
+#          `Exclusivity`= map_dbl(exclusivity, mean),
+#          `Semantic coherence`= map_dbl(semantic_coherence, mean), 
+#          `Held-out likelihood`= map_dbl(eval_heldout, "expected.heldout")) %>%
+#  gather(Metric, Value, -K) %>%
+#  ggplot(aes(K, Value, color = Metric)) + 
+#  geom_line(size = 1.5, alpha = 0.7, show.legend = FALSE) +
+#  facet_wrap(~Metric, scales = "free_y") +
+#  labs(x = "K (number of topics)", 
+#       y = NULL,
+#       title = "Model diagnostics by number of topics",
+#       subtitle = "The optimal number of topics seems to be around 5") +
+#  theme_bw()
+
+#save.image(k_result, file = "~/Documents/Statsvitenskap /Political Data Science Hacaton/Script/NORAD/k_result.")
+#load(file = "~/Documents/Statsvitenskap /Political Data Science Hacaton/Script/NORAD/k_result. ")
+
+knitr::include_graphics("/Volumes/Transcend/Prosjekt/ktest25-75.png")
+
+knitr::include_graphics("/Volumes/Transcend/Prosjekt/ktest100-160.png")
+```
+
+***PLot 9 shows the K-test results***
+
+
+*The topic model*
+***MANUAL OR AUTOMATED INTERPRETATION***
+Our solution to Norad's classification problem is to improve their existing model, using new information. We have therefore created a data set that measures the probability that each document in Norad's data set scores on given, selected topics.
+
+Correlation between topics and policy marker
+We have selected topics based on correlation with the topics of the topic model and norad's policy markers. Topics that had a high correlation with the policy markers. On the climate markers, we also used a measure where we gave the topics that had a high difference between the loading on documents that were associated with being classified in a policy marker - versus not being so (this was not done on gender_equality). CHECK THIS OUT. We could choose to interpret the subjects manually, and enter this data into our data set. But as Norad wanted an automated process, we chose correlation.
+
+```{r, eval=FALSE, echo = FALSE}
+many_models2 <- M %>% #Topic model
+  filter(K == 140) %>%  #Velger hvor mange topics
+  pull() %>% 
+  .[[1]]
+
+#topic1 <- stm(NORAD_DFM, #This code took longer for our machine to run, therefore we used the one above
+#             init.type = "LDA", 
+#            K = 140, 
+#           seed = 910, 
+#          max.em.its = 2, 
+#         verbose = TRUE)
+
+topic_word_prob <- tidy(many_models2,
+                        matrix = "beta")
+
+save(topic_word_prob, file = "~/R 22 sommerskole/NORAD/topic_word_prob.rda")
+
+#gammaverdiene er på dokumenter
+topics <- tidy(many_models2,
+               matrix = "gamma",
+               document_names = rownames(NORAD_DFM))
+#toppdokumenter som lader på emne - bruk gammaverdiene høyest 
+toppdocsEMNE <- topics %>% 
+  filter(topic== 2) %>% #topic nr
+  slice_max(order_by = gamma, n = 100) #høyest topicverdi på gamma på emnet
+
+summary(toppdocsEMNE$gamma) # lavste gammaverdien og høyeste
+
+toppdocsEMNE$document[1] %in% NORAD_subset$agreement_number
+print(toppdocsEMNE$document[1])
+
+# toppdokumenter + norad subset = topp100
+# tekster subset, legger inn topic score tioppdokumenter på det gamle noradsubsettet
+topp100 <- NORAD_subset %>% 
+  filter(agreement_number %in% toppdocsEMNE$document) # sjekker om agreement number finnes i listen over topp 100 på emne f eks 67 eller 2
+
+
+# Sys.getlocale() Gard skrev i inn for å sjekke  noe Git feil
+
+
+
+# HVOR MYE LADER HVERD DOKUMENT PÅ TOPICene? 
+
+#gamma dokumentverdiene på emene vi lagde i stad, tar med gammaverdiene og left joiner inn Norad-subset etter avtalenummer agreement number, som er dokument her 
+# i topics kalles den document, i den andre heter den agreement_number 
+topic_pm <- topics %>%
+  pivot_wider(names_from = topic, values_from = gamma) %>%
+  left_join(NORAD_subset, by = c("document" = "agreement_number"))
+
+topic_pm
+
+save(topic_pm, file = "~/R 22 sommerskole/NORAD/topic_pm.rda")
+
+#korrelasjon Det funker
+lm(policy_marker_gender_equality ~ `67` + `128`, data = topic_pm) %>%
+  stargazer::stargazer(type = "text")
+
+
+
+# binde Forestmodellen til topicmodellen? SOLVEIG stoppet opp her
+randomforest(gender ~ variabel + variabel2 + variabel3 + politcal_women + otherwomen, data = topicdata)
+
+#left j på ny
+
+kkNORAD_subset_topics <- topic_pm %>% 
+  #rename("political_women" = "67",
+   #      "otherwomen" = "128") %>%
+  select(document, `67`, `128`, `119`, description_of_agreement, policy_marker_biodiversity, policy_marker_climate_change_mitigation,
+         policy_marker_climate_change_adaptation, policy_marker_gender_equality) %>%
+  mutate(highload_67 = ifelse(`67` > 0.8, 1, 0), #mean evnt
+         highload_128 = ifelse(`128` > 0.8, 1, 0), 
+          highload_119 = ifelse(`119` > 0.1, 1, 0))
+
+##
+#lmitigation119 <- topic_pm %>% 
+ # select(document, description_of_agreement, policy_marker_biodiversity, #policy_marker_climate_change_mitigation, policy_marker_climate_change_adaptation, #policy_marker_gender_equality, `119`)
+
+
+
+#  mutate(highload_67 = ifelse(`67` > mean(`67`), 1, 0), #mean evnt
+   #      highload_128 = ifelse(`128` > mean(`128`), 1, 0))
+
+
+# korrelasjon mellom emner
+cor(NORAD_subset_topics %>%
+      select(`67`, `128`))
+
+
+mean(topic_pm$`67`)
+
+
+# confusion matrix
+NORAD_subset_topics %>%
+  group_by(policy_marker_gender_equality, highload_67) %>%
+  count()
+
+table(NORAD_subset_topics$highload_67, #highload
+      NORAD_subset_topics$policy_marker_gender_equality)
+
+## bra conf matrix
+kkNORAD_subset_topics %>%
+  group_by(policy_marker_climate_change_mitigation, highload_119) %>%
+  count()
+
+#dårlig conf matrix
+table(kkNORAD_subset_topics$highload_119, #highload
+      kkNORAD_subset_topics$policy_marker_climate_change_mitigation)
+
+
+```
+
+*Findings*
+We find that there are topics that correlate highly with NORAD's classification, which also intuitively makes sense to link to a policy marker.
+  ***Topic 126: rights, human, promotion, child, women's***
+  ***Topic 128: social, economic, women, empowerment, development***
+
+
+**Challenges in using correlation: reproduction bias**
+Correlation between topics and policy markers: the topics that correlate with the policy markers - are they a good measure?
+
+Earlier, we saw that topics 126 and 128 correlated well with the policy markers of Norad. Let's use this policy marker as a starting point to also illustrate the downsides of using correlation as a measure alone:
+
+  ***Topic 126: rights, human, promotion, child, women's***
+ ***Topic 128: social, economic, women, empowerment, development***
+
+There are still topics that we would like to link to a policy marker, where there was no high correlation between the classification in the NORAD data set and our topics.
+
+ ***Topic 67: training, gender, equality, vocational, women***
+ ***Topic 2: influence, encourage, equal, opportunities, women***
+ ***Topic 58: participation, political, women, processes, indigenous***
+
+We can ask ourselves the question: Why don't the topics that we would naturally interpret as women and equality-related correlate with the classification in Norad's data set? It will be interesting to examine this mismatch more closely. We also see that our topic model separates equality and women's issues into different subtopics, which is interesting in itself.
+
+There was also a topic that correlated well with the NORAD data set, but which did not intuitively make sense for us to interpret as an equality theme.
+ ***Topic 17: education, school, quality, learning, children***
+
+From less significant correlation, we got the following, which cannot be easily and not without difficulty interpreted as an equality theme.
+ ***Topic 29: peace, conflict, process, security, reconciliation***
+
+
+*Challenges*
+**Methodological limitations: correlation and reproduction bias**
+The disadvantage of basing which subjects we will select on correlation with Norad's data set is that it can reproduce bias from the data set. To remedy that, we could have picked out high loadings on subjects that the model produced, which we believe should have been relevant to the policy markers, but which nevertheless did not correlate with Norad's data set. The disadvantage of this is that the process will take place manually, and not fully automated. Thus, we will again impose a bias on the model, but here, nevertheless, a bias based on the subjects that the model has already interpreted in its own way. Therefore, the idea is that this approach will in sum produce less bias
+
+
+**Challenges with topic model**
+The policy markers that prescribe climate mitigation, adaptation and biodiversity were not easily identified by the topic model. It separates environment-related topics, but they overlap, so that the topic model is unable to completely distinguish between the three categories. If the themes are overlapping in nature, it may affect whether people are able to distinguish them.
+Let's take an example: Can you tell the markers apart based on topic 94? Let's take a look at topics 55, 117 and 131 charge high on biodiversity. Nevertheless, subject 55 also charges highly on mitigation. Subject 116 remains the only subject that places a high emphasis on mitigation, but nevertheless 116 is also a significant contributor to climate adaptation.
+
+ ***Topic 94: climate, change, agriculture, farmers, development***
+
+#  PLOT Topic model  inn her: korrelasjon 
+***In the following part, we plot the connection between the generated subjects / topics from the topic model, and the documents / aid agreements that are linked to, or that are categorized within one or more of Norad's three markers biodiversity, climate mitigation and climate adaptation. - We use Scatterplot. The plots illustrate correlation between the subjects and the policy_markers.***
+
+*** Plot av markør biodiversity *** 
+
+```{r, echo = FALSE, fig.out = "50%", eval=FALSE}
+tall <- 1
+antall_topics <- 140
+load("/Volumes/Transcend/Prosjekt/topic_pm.rda")
+
+#Selected objects
+biodiversity_ladning <- topic_pm %>% 
+  filter(policy_marker_biodiversity == tall)
+
+ikke_biodiversity_ladning <- topic_pm %>% 
+  filter(policy_marker_biodiversity == 0)
+
+mitigation_ladning <- topic_pm %>% 
+  filter(policy_marker_climate_change_mitigation == tall)
+
+ikke_mitigation_ladning <- topic_pm %>% 
+  filter(policy_marker_climate_change_mitigation == 0)
+
+adaptation_ladning <- topic_pm %>% 
+  filter(policy_marker_climate_change_adaptation == tall)
+
+ikke_adaptation_ladning <- topic_pm %>% 
+  filter(policy_marker_climate_change_adaptation == 0)
+
+snitt_positiv <- tibble(topic = as.integer(), mean_bio = as.integer(), median_bio = as.integer(), mean_mit = as.integer(), median_mit = as.integer(), mean_ada = as.integer(), median_ada = as.integer(), cathegory = as.character())
+snitt_negativ <- tibble(topic = as.integer(), mean_bio = as.integer(), mean_mit = as.integer(), mean_ada = as.integer(), cathegory = as.character())
+
+#The function to iterate through the topics and find the mean and median of the values
+for (nr in 1:antall_topics) {
+  gjennomsnitt_bio <- biodiversity_ladning %>% 
+    select(as.character(nr)) %>% 
+    lapply(mean, na.rm = TRUE) %>% unlist()
+  gjennomsnitt_ikke_bio <- ikke_biodiversity_ladning %>% 
+    select(as.character(nr)) %>% 
+    lapply(mean, na.rm = TRUE) %>% unlist()
+  gjennomsnitt_mit <- mitigation_ladning %>% 
+    select(as.character(nr)) %>% 
+    lapply(mean, na.rm = TRUE) %>% unlist()
+  gjennomsnitt_ikke_mit <- ikke_mitigation_ladning %>% 
+    select(as.character(nr)) %>% 
+    lapply(mean, na.rm = TRUE) %>% unlist()
+  gjennomsnitt_ada <- adaptation_ladning %>% 
+    select(as.character(nr)) %>% 
+    lapply(mean, na.rm = TRUE) %>% unlist()
+  gjennomsnitt_ikke_ada <- ikke_adaptation_ladning %>% 
+    select(as.character(nr)) %>% 
+    lapply(mean, na.rm = TRUE) %>% unlist()
+  median_bio <- biodiversity_ladning %>% 
+    select(as.character(nr)) %>% 
+    lapply(median, na.rm = TRUE) %>% unlist()
+  median_mit <- mitigation_ladning %>% 
+    select(as.character(nr)) %>% 
+    lapply(median, na.rm = TRUE) %>% unlist()
+  median_ada <- adaptation_ladning %>% 
+    select(as.character(nr)) %>% 
+    lapply(median, na.rm = TRUE) %>% unlist()
+  
+  snitt_positiv <- snitt_positiv %>% 
+    add_row(topic = nr, mean_bio = gjennomsnitt_bio[1], median_bio = median_bio[1], mean_mit = gjennomsnitt_mit[1], median_mit = median_mit[1], mean_ada = gjennomsnitt_ada[1], median_ada = median_ada[1], cathegory = "true")
+  snitt_negativ <- snitt_negativ %>% 
+    add_row(topic = nr, mean_bio = gjennomsnitt_ikke_bio[1], mean_mit = gjennomsnitt_ikke_mit[1], mean_ada = gjennomsnitt_ikke_ada[1], cathegory = "false")
+}
+
+library(ggplot2)
+
+#Plotting the average of the topic model beta
+ggplot(snitt_positiv, aes(x = topic, y = mean_bio)) + geom_point() + geom_text(label = as.character(snitt_positiv$topic), nudge_x=4)
+
+```
+
+```{r}
+knitr::include_graphics("/Volumes/Transcend/Prosjekt/plot 5.png")
+```
+
+ **  Plott 5 illustrerer gammaverdiene, dokumentladningen på gjennomsnittsdokumentet tilknyttet policymarkør biodiversity , og deres relasjon til Topi **
+
+*** Plot av markøren climate mitigation ***
+
+```{r, echo = FALSE, fig.out = "50%", eval=FALSE}
+ggplot(snitt_positiv, aes(x = topic, y = mean_mit)) + geom_point() + geom_text(label = as.character(snitt_positiv$topic), nudge_x=4)
+```
+
+```{r}
+knitr::include_graphics("/Volumes/Transcend/Prosjekt/plot 6.png")
+```
+
+ *** Plott 6 illustrerer gammaverdiene, dokumentladningen på gjennomsnittsdokumentet tilknyttet policymarkør climate mitigation, og deres relasjon til Topic ***
+
+*** Plot av markør climate change adaption ***
+
+```{r, echo = FALSE, fig.out = "50%", eval=FALSE}
+ggplot(snitt_positiv, aes(x = topic, y = mean_ada)) + geom_point() + geom_text(label = as.character(snitt_positiv$topic), nudge_x=4)
+```
+
+```{r}
+knitr::include_graphics("/Volumes/Transcend/Prosjekt/plot 7.png")
+```
+
+ *** Plott 7 illustrerer gammaverdiene, dokumentladningen på gjennomsnittsdokumentet tilknyttet policymarkør climate change adaptionn, og deres relasjon til Topic ***
+ 
+ 
+**Other limitations with the topic model**
+As mentioned, our model is still at a "rough" stage, it is not fine-tuned. The large data set took a lot of processing power. We have therefore not used congruent (ready-made) topics, but topics that give a certain indicator of which words have a high probability of appearing in the same cluster. Ideally, we should have adjusted the subjects so that they were fine-tuned, which is possible with greater processor power. This could be done by running several topic models, and testing yourself to discover whether a higher or lower number of topics would solve the problem. We believe that increased exclusivity, i.e. more, smaller subjects, will have a good effect on this particular problem.   If the model is unable to separate these, there is a possibility that the data set's documents do not differentiate well enough on different climate markers.
+
+
+**Random Forest model**
+An example of an algorithm that is supervised is Random Forest. Before we can know what this entails, we must also know how an election tree works.
+We have something called election trees. This is another type of algorithm that is used to classify data. Simply put, the tree started with a question or claim and then grows.
+
+```{r}
+knitr::include_graphics("/Volumes/Transcend/Prosjekt/Abdullah.jpg")
+```
+
+With Random Forest, as the name implies that it is a forest, instead of one tree, we have several trees, as a forest has. When we use Random Forest for classification, each tree will come up with a classification proposal. The forest will then decide which classification is most likely to be correct by taking the classification with the most votes. For regression, however, the forest chooses the average of the number all trees predict.
+The point here is that there is little or no connection between the individual trees. So some of the trees will greatly miss the result, while the majority will hit correctly and thus the result as a whole will be as correct as possible.
+The difference between individual trees and trees in a Random Forest is that the trees in RF are mixed together randomly and this is where the name Random comes from.
+
+
+#___#Nikolai
+
+**** 3: Findings and data challenges ****
+
+The model only shows how the topic is related to itself. This has some limitation since it doesn’t show the relative difference to the other topics or the opposite of itself. The scatterplot only shows the gamma value relative to the positive policy_markers, but not to the topics that score negative on our chosen policy_marker. When a document is classified Norad gives them a value between 0 and 2 based on whether they are related to a given policy marker. The value of 0 can be seen as a false or no load, and the values of 1 or 2 can both be seen as true or a positive load. This way it becomes clear that we have two different objects for each topic. We need to analyze both the positive value and the negative value, and find the relative value between them. 
+
+If the negative score also has a high score on the same topic, it indicates that the topic is very commonly used and that it is not defining for our topic. To minimize this problem we have found the relative difference between the topics for the selected policy_marker when it scores 1 and when it scores 0. The graph under shows the top ten topics with the largest variance:
+
+* Plotting the variance of the topics *
+
+```{r, echo = FALSE, fig.height = 4, eval=FALSE}
+
+snitt <- snitt_positiv %>% 
+  full_join(snitt_negativ)
+
+snitt_bio <- snitt_positiv %>% 
+  group_by(topic, mean_bio, cathegory) %>% 
+  select(topic, mean_bio, cathegory) %>% 
+  full_join(snitt_negativ)
+snitt_mit <- snitt_positiv %>% 
+  group_by(topic, mean_mit, cathegory) %>% 
+  select(topic, mean_mit, cathegory) %>% 
+  full_join(snitt_negativ)
+snitt_ada <- snitt_positiv %>% 
+  group_by(topic, mean_ada, cathegory) %>% 
+  select(topic, mean_ada, cathegory) %>% 
+  full_join(snitt_negativ)
+
+variance_bio <- tibble(topic = as.integer(), variance = as.integer())
+variance_mit <- tibble(topic = as.integer(), variance = as.integer())
+variance_ada <- tibble(topic = as.integer(), variance = as.integer())
+
+for (nr in 1:antall_topics) {
+  verdi_snitt <- snitt %>% 
+    filter(topic == nr)
+  variance_bio <- variance_bio %>% 
+    add_row(topic = nr, variance = abs(diff(verdi_snitt$mean_bio)))
+  variance_mit <- variance_mit %>% 
+    add_row(topic = nr, variance = abs(diff(verdi_snitt$mean_mit)))
+  variance_ada <- variance_ada %>% 
+    add_row(topic = nr, variance = abs(diff(verdi_snitt$mean_ada)))
+}
+
+number_of_variables <- 10
+variance_bio <- variance_bio %>% 
+  slice_max(order_by = variance, n = number_of_variables)
+variance_bio <- merge(variance_bio, snitt_bio, by = "topic")
+
+variance_mit <- variance_mit %>% 
+  slice_max(order_by = variance, n = number_of_variables)
+variance_mit <- merge(variance_mit, snitt_mit, by = "topic")
+
+variance_ada <- variance_ada %>% 
+  slice_max(order_by = variance, n = number_of_variables)
+variance_ada <- merge(variance_ada, snitt_ada, by = "topic")
+
+ggplot(variance_bio,aes(topic, mean_bio)) +
+  geom_line(aes(group = topic)) + 
+  geom_text(label = variance_bio$topic, nudge_x = 3, check_overlap = TRUE) +
+  geom_point(aes(color = cathegory)) 
+
+ggplot(variance_mit,aes(topic, mean_mit)) +
+  geom_line(aes(group = topic)) + 
+  geom_text(label = variance_mit$topic, nudge_x = 3, check_overlap = TRUE) +
+  geom_point(aes(color = cathegory)) 
+
+ggplot(variance_ada,aes(topic, mean_ada)) +
+  geom_line(aes(group = topic)) + 
+  geom_text(label = variance_ada$topic, nudge_x = 3, check_overlap = TRUE) +
+  geom_point(aes(color = cathegory)) 
+```
+
+```{r, eval=TRUE}
+knitr::include_graphics("/Volumes/Transcend/Prosjekt/plot 8 a.png")
+knitr::include_graphics("/Volumes/Transcend/Prosjekt/plot 8 b.png")
+knitr::include_graphics("/Volumes/Transcend/Prosjekt/plot 8 c.png")
+```
+
+* Plot 8 illustrates the variance of the topics *
+
+Another way to represent the data would be to take the relative differences between the different topics (also known as a beta in topic modelling). This method is commonly used to differentiate the different topics and to find topics that have the largest variance between them. Using this method we can find topics that are definable to a policy_marker, since every policy_marker will have a different score between the topics. We didn’t use this method since it can be quite time consuming, especially with 140 topics. For further research this would be a good way to visualize the difference between the three policy_markes chosen by NORAD. 
+
+By analyzing the relative difference and the load on each policy_marker we found that the values are quite small and correlated with each other. This indicates that the topics aren’t definable to the policy_marker. We can think of three reasons for this. The first reason is that the topics aren’t grouped well enough and are too broad to give a clear indication of a policy_marker. The second reason is that the descriptions have a very unstructured layout, and therefore all have a fairly equal load on the topics. This would also explain the relative small difference between the topics. The last explanation we had was that the policy_markers where classified wrongly. If this is the case every topic would have a random correlation to a policy_marker since the policy_markers aren’t clearly defined.
+
+The three hypotheses for the seemingly small variance between the topic and the policy marker are a consequence of having a rich and non-definable data. Text is rich and complicated data, and its certainly a difficulty to try and group them to a given topic. This was a given challenge for the task from Norad, but only hypothesis 1 and 2 would be solvable by tidying and sorting the data. The third problem on the other hand would be devastating for the algorithm. An algorithm is only as good as the data it gets, and if the data has wrong parameters it would of course also lead to a wrong conclusion. If this is the case we would have an explanation for the low correlation, and we therefore tried to test our hypothesis of a wrongly classified dataset by sorting the topics relative to their beta load from the topic model. 
+This gave us a good insight into the dataset, the structure, and the predictions of our topic model. We have gathered some topics under that our topic model predicted with good certainty but have a different load than the one that the model predicted. What topic do you think the descriptions are related to? 
+
+
+
+#___#Oda
+
+*Continuous work*
+
+If, in the long term, NORAD could wish for an automation of the classifications of policy markers, Norad can:
+1 adjust their policy markers so that they are easier for humans to interpret.
+Then it will in turn produce more uniform datasets that supervised machine learning including Random Forest can learn from.
+2 adjust their policy markers so that they are easier to interpret mathematically
+This can be implemented, at least partially, by adjusting its policy markers based on the output from topic models. The pattern the model finds in the documents can pave the way for new and different thinking, and to make it easier to fully automate a process.
+
+
+
